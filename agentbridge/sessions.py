@@ -12,6 +12,8 @@ import subprocess
 import time
 import uuid
 
+from . import hooks
+
 KNOWN_AGENTS = ("claude", "codex", "cursor-agent", "copilot", "gemini",
                 "aichat", "opencode", "goose", "amp", "droid", "crush",
                 "kilocode", "roo", "qwen", "chatgpt")
@@ -54,6 +56,7 @@ class SessionManager:
         self._log_offsets: dict[str, int] = {}
         self._seen_pids: set[int] = set()
         self._done_notified: set[str] = set()
+        self._delivered: set[str] = set()
         self._loop: asyncio.AbstractEventLoop | None = None
 
     # MARK: - lifecycle
@@ -289,6 +292,19 @@ class SessionManager:
             try:
                 current = {w["pid"] for w in self._scan_processes()
                            if w["kind"] == "process"}
+                for req in hooks.pending_requests():
+                    rid = req.get("rid", "")
+                    if not rid or rid in self._delivered:
+                        continue
+                    self._delivered.add(rid)
+                    if req.get("kind") == "approval":
+                        self.broadcast({"type": "approval-request", **req})
+                    else:
+                        self.broadcast({"type": "notify", "kind": "info",
+                                        "title": req.get("title", ""),
+                                        "body": req.get("detail", "")})
+                if len(self._delivered) > 1000:
+                    self._delivered = set(list(self._delivered)[-300:])
                 for path in self._log_sources():
                     for text in self._tail_new(path):
                         self.broadcast({"type": "watcher-output",

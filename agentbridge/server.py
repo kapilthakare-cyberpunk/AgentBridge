@@ -9,6 +9,7 @@ import json
 import os
 import secrets
 import socket
+import time
 
 TOKEN_FILE = os.path.expanduser("~/.agentbridge/token")
 DEFAULT_PORT = 9876
@@ -120,6 +121,8 @@ class BridgeServer:
         self.clients: set[ClientConn] = set()
 
     def broadcast(self, msg: dict) -> None:
+        if msg.get("type") == "approval-request":
+            print(f"[bridge] tx approval {msg.get('rid')}", flush=True)
         for c in list(self.clients):
             c.push(msg)
 
@@ -140,6 +143,8 @@ class BridgeServer:
         if headers.get("upgrade", "").lower() != "websocket":
             return False
         key = headers.get("sec-websocket-key", "")
+        print(f"[bridge] hs t={time.strftime('%H:%M:%S')} key={key!r} hdrs={sorted(headers)}",
+              flush=True)
         accept = base64.b64encode(
             hashlib.sha1((key + WS_MAGIC).encode()).digest()).decode()
         writer.write(
@@ -208,14 +213,17 @@ class BridgeServer:
             if msg.get("type") == "hello" and secrets.compare_digest(
                     str(msg.get("token", "")), self.token):
                 conn.authed = True
+                print(f"[bridge] hello ok {conn.addr}", flush=True)
                 conn.push({"type": "hello-ok",
                            "sessions": self.manager.list_sessions(),
                            "watchers": self.manager.list_watchers(),
                            "pending": self.hooks.pending_requests()})
             else:
+                print(f"[bridge] hello denied {conn.addr}", flush=True)
                 conn.writer.close()
             return
         mtype = msg.get("type")
+        print(f"[bridge] rx {mtype} {conn.addr}", flush=True)
         try:
             if mtype == "ping":
                 conn.push({"type": "pong"})
