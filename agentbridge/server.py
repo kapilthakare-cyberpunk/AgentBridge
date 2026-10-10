@@ -130,9 +130,11 @@ class BridgeServer:
                           writer: asyncio.StreamWriter) -> bool:
         """Read the HTTP upgrade request. Returns True if it is a WS handshake."""
         headers: dict[str, str] = {}
+        raw_lines = []
         try:
             while True:
                 line = await asyncio.wait_for(reader.readline(), timeout=10)
+                raw_lines.append(line)
                 if not line or line in (b"\r\n", b"\n"):
                     break
                 if b":" in line:
@@ -140,6 +142,15 @@ class BridgeServer:
                     headers[k.strip().lower()] = v.strip()
         except (asyncio.TimeoutError, ConnectionError):
             return False
+        # debug raw request for troubleshooting
+        raw_req = b"".join(raw_lines)
+        # print first 500 bytes
+        try:
+            preview = raw_req[:500].decode('latin1', errors='replace')
+            print(f"[bridge] raw req preview: {preview!r}", flush=True)
+        except Exception:
+            pass
+        # print raw for future
         if headers.get("upgrade", "").lower() != "websocket":
             return False
         key = headers.get("sec-websocket-key", "")
@@ -147,6 +158,7 @@ class BridgeServer:
               flush=True)
         accept = base64.b64encode(
             hashlib.sha1((key + WS_MAGIC).encode()).digest()).decode()
+        print(f"[bridge] hs accept calc={accept}", flush=True)
         writer.write(
             ("HTTP/1.1 101 Switching Protocols\r\n"
              "Upgrade: websocket\r\nConnection: Upgrade\r\n"
